@@ -10,31 +10,26 @@ jobs:
   analyze:
     name: Analizar con SonarQube
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Descargar código
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         
-    - name: Configurar Python
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
         
-    - name: Instalar dependencias
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         if [ -f requerimientos.txt ]; then pip install -r requerimientos.txt; fi
         
-    - name: Ejecutar análisis de SonarQube
-      uses: SonarSource/sonarqube-scan-action@v4
+    - name: SonarQube Scan
+      uses: sonarsource/sonarqube-scan-action@master
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       with:
-        args: >
-          -Dsonar.projectKey=servidor702
-          -Dsonar.projectName=servidor702
-          -Dsonar.sources=.
-          -Dsonar.exclusions=**/node_modules/**,**/*.pyc,**/__pycache__/**
+        projectBaseDir: .
