@@ -24,6 +24,3 @@ class Ventas(Base):
     usuario = relationship("Usuario")
 
 Base.metadata.create_all(engine)
-# Base.metadata.create_all(engine)
-# Session = sessionmaker(bind=engine)
-# session = Session()

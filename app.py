@@ -6,11 +6,21 @@ from flasgger import Swagger
 from sqlalchemy import text
 import jwt
 import datetime
+from datetime import timezone
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import os
 from flask_cors import CORS
+
+# Importar constantes
+from constants import (
+    TOKEN_MISSING, TOKEN_EXPIRED, TOKEN_INVALID_USER, TOKEN_INVALID,
+    USER_NOT_FOUND, USER_CREATED, USER_UPDATED, USER_DELETED,
+    USER_UNAUTHORIZED, USER_NO_PERMISSION, USER_NO_PERMISSION_VENTAS,
+    PBKDF2_ALGORITHM, JWT_ALGORITHM, USERNAME_PASSWORD_REQUIRED,
+    INVALID_CREDENTIALS, USERNAME_REQUIRED, NO_USERS_FOUND, ROLE_ADMIN
+)
 
 # Cargar variables de entorno
 load_dotenv()
@@ -29,53 +39,52 @@ swagger = Swagger(app)
 
 # Crear admin por defecto y utilidades de token
 def crear_admin_por_defecto():
-  from db import Session
-  admin_username = os.getenv('ADMIN_USERNAME', 'admin')
-  admin_password = os.getenv('ADMIN_PASSWORD', 'admin123')
-  existe = Session.query(Usuario).filter_by(username=admin_username).first()
-  if not existe:
-    hash_pw = generate_password_hash(admin_password, method='pbkdf2:sha256')
-    nuevo = Usuario(username=admin_username, password=hash_pw, rol='admin')
-    Session.add(nuevo)
-    try:
-      Session.commit()
-      print(f"Usuario admin '{admin_username}' creado por defecto")
-    except Exception as e:
-      Session.rollback()
-      print('Error creando admin por defecto:', e)
+    from db import Session
+    admin_username = os.getenv('ADMIN_USERNAME', 'admin')
+    admin_password = os.getenv('ADMIN_PASSWORD', 'admin123')
+    existe = Session.query(Usuario).filter_by(username=admin_username).first()
+    if not existe:
+        hash_pw = generate_password_hash(admin_password, method=PBKDF2_ALGORITHM)
+        nuevo = Usuario(username=admin_username, password=hash_pw, rol=ROLE_ADMIN)
+        Session.add(nuevo)
+        try:
+            Session.commit()
+            print(f"Usuario admin '{admin_username}' creado por defecto")
+        except Exception as e:
+            Session.rollback()
+            print('Error creando admin por defecto:', e)
 
 def token_required(f):
-  @wraps(f)
-  def decorated(*args, **kwargs):
-    token = None
-    if 'Authorization' in request.headers:
-      auth_header = request.headers['Authorization']
-      parts = auth_header.split()
-      if len(parts) == 2 and parts[0] == 'Bearer':
-        token = parts[1]
-    if not token:
-      return jsonify({'message': 'Token is missing!'}), 401
-    try:
-      data = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-      current_user = Session.query(Usuario).filter_by(id=data['id']).first()
-      if not current_user:
-        return jsonify({'message': 'Token is invalid (user not found)'}), 401
-      request.current_user = current_user
-    except jwt.ExpiredSignatureError:
-      return jsonify({'message': 'Token has expired!'}), 401
-    except Exception as e:
-      return jsonify({'message': f'Token is invalid: {str(e)}'}), 401
-    return f(*args, **kwargs)
-  return decorated
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0] == 'Bearer':
+                token = parts[1]
+        if not token:
+            return jsonify({'message': TOKEN_MISSING}), 401
+        try:
+            data = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            current_user = Session.query(Usuario).filter_by(id=data['id']).first()
+            if not current_user:
+                return jsonify({'message': TOKEN_INVALID_USER}), 401
+            request.current_user = current_user
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': TOKEN_EXPIRED}), 401
+        except Exception as e:
+            return jsonify({'message': f'{TOKEN_INVALID}: {str(e)}'}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 @app.route('/')
 def home():
     return 'Hello, Flask!'
 
-
 @app.route('/ping', methods=['GET'])
 def ping():
-  return jsonify({'message': 'pong'})
+    return jsonify({'message': 'pong'})
 
 @app.route('/saludar', methods=['GET'])
 def saludar():
@@ -123,15 +132,15 @@ def crear_usuario():
     username = datos.get('username', 'LEO')
     password = datos.get('password', '20')
     # Encriptar la contraseña antes de guardarla
-    password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+    password_hash = generate_password_hash(password, method=PBKDF2_ALGORITHM)
     nuevo_usuario = Usuario(username=username, password=password_hash)
     Session.add(nuevo_usuario)
     try:
         Session.commit()
-        return jsonify({"message": "Usuario creado correctamente"}), 201
-    except:
+        return jsonify({"message": USER_CREATED}), 201
+    except Exception as e:
         Session.rollback()
-        return jsonify({"error": "Error al crear el usuario"}), 500
+        return jsonify({"error": f"Error al crear el usuario: {str(e)}"}), 500
 
 @app.route('/obtener_usuario', methods=['GET'])
 def obtener_usuario():
@@ -154,10 +163,9 @@ def obtener_usuario():
                 for u in usuarios
             ]
             return jsonify(lista_usuarios)
-        return jsonify({"message": "No se encontró ningún usuario"}), 404
+        return jsonify({"message": NO_USERS_FOUND}), 404
     except Exception as e:
         return jsonify({"error": f"Error al obtener los usuarios: {str(e)}"}), 500
-
 
 @app.route('/usuarios', methods=['GET'])
 def listar_usuarios():
@@ -180,7 +188,7 @@ def listar_usuarios():
                 for u in usuarios
             ]
             return jsonify(lista_usuarios)
-        return jsonify({"message": "No se encontró ningún usuario"}), 404
+        return jsonify({"message": NO_USERS_FOUND}), 404
     except Exception as e:
         return jsonify({"error": f"Error al obtener los usuarios: {str(e)}"}), 500
 
@@ -210,7 +218,7 @@ def actualizar_usuario(id):
     """
     usuario = Session.query(Usuario).filter_by(id=id).first()
     if not usuario:
-        return jsonify({"message": "Usuario no encontrado"}), 404
+        return jsonify({"message": USER_NOT_FOUND}), 404
     datos = request.form
     # Validar token
     token = None
@@ -219,23 +227,23 @@ def actualizar_usuario(id):
         if len(parts) == 2 and parts[0] == 'Bearer':
             token = parts[1]
     if not token:
-        return jsonify({'message': 'Token is missing!'}), 401
+        return jsonify({'message': TOKEN_MISSING}), 401
     try:
-        data_token = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        data_token = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
         auth_user = Session.query(Usuario).filter_by(id=data_token['id']).first()
         if not auth_user:
-            return jsonify({'message': 'Token inválido (usuario no encontrado)'}), 401
+            return jsonify({'message': TOKEN_INVALID_USER}), 401
         # Solo admin o el mismo usuario puede actualizar
-        if auth_user.rol != 'admin' and auth_user.id != usuario.id:
-            return jsonify({'message': 'No tiene permisos para actualizar este usuario'}), 403
+        if auth_user.rol != ROLE_ADMIN and auth_user.id != usuario.id:
+            return jsonify({'message': USER_NO_PERMISSION}), 403
         usuario.username = datos.get('username', usuario.username)
         if 'password' in datos:
-            password_hash = generate_password_hash(datos['password'], method='pbkdf2:sha256')
+            password_hash = generate_password_hash(datos['password'], method=PBKDF2_ALGORITHM)
             usuario.password = password_hash
         Session.commit()
-        return jsonify({"message": "Usuario actualizado correctamente"})
+        return jsonify({"message": USER_UPDATED})
     except jwt.ExpiredSignatureError:
-        return jsonify({'message': 'Token has expired!'}), 401
+        return jsonify({'message': TOKEN_EXPIRED}), 401
     except Exception as e:
         Session.rollback()
         return jsonify({"error": f"Error al actualizar el usuario: {str(e)}"}), 500
@@ -258,7 +266,7 @@ def eliminar_usuario(id):
     """
     usuario = Session.query(Usuario).filter_by(id=id).first()
     if not usuario:
-        return jsonify({"message": "Usuario no encontrado"}), 404
+        return jsonify({"message": USER_NOT_FOUND}), 404
     # Solo admin puede eliminar
     token = None
     if 'Authorization' in request.headers:
@@ -266,17 +274,17 @@ def eliminar_usuario(id):
         if len(parts) == 2 and parts[0] == 'Bearer':
             token = parts[1]
     if not token:
-        return jsonify({'message': 'Token is missing!'}), 401
+        return jsonify({'message': TOKEN_MISSING}), 401
     try:
-        data_token = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        data_token = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
         auth_user = Session.query(Usuario).filter_by(id=data_token['id']).first()
-        if not auth_user or auth_user.rol != 'admin':
-            return jsonify({'message': 'No autorizado'}), 403
+        if not auth_user or auth_user.rol != ROLE_ADMIN:
+            return jsonify({'message': USER_UNAUTHORIZED}), 403
         Session.delete(usuario)
         Session.commit()
-        return jsonify({"message": "Usuario eliminado correctamente"})
+        return jsonify({"message": USER_DELETED})
     except jwt.ExpiredSignatureError:
-        return jsonify({'message': 'Token has expired!'}), 401
+        return jsonify({'message': TOKEN_EXPIRED}), 401
     except Exception as e:
         Session.rollback()
         return jsonify({"error": f"Error al eliminar el usuario: {str(e)}"}), 500
@@ -337,7 +345,7 @@ def obtener_ventas():
     """
     data = json.loads(request.data)
     if 'username' not in data:
-        return jsonify({"respuesta": "Nombre de usuario no enviado, verifica tus datos"}), 400
+        return jsonify({"respuesta": USERNAME_REQUIRED}), 400
 
     # Verificar token y permisos
     token = None
@@ -346,19 +354,19 @@ def obtener_ventas():
         if len(parts) == 2 and parts[0] == 'Bearer':
             token = parts[1]
     if not token:
-        return jsonify({'message': 'Token is missing!'}), 401
+        return jsonify({'message': TOKEN_MISSING}), 401
     try:
-        data_token = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        data_token = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
         auth_user = Session.query(Usuario).filter_by(id=data_token['id']).first()
         if not auth_user:
-            return jsonify({'message': 'Token inválido (usuario no encontrado)'}), 401
-        if auth_user.rol != 'admin' and auth_user.username != data['username']:
-            return jsonify({'message': 'No tiene permisos para ver estas ventas'}), 403
+            return jsonify({'message': TOKEN_INVALID_USER}), 401
+        if auth_user.rol != ROLE_ADMIN and auth_user.username != data['username']:
+            return jsonify({'message': USER_NO_PERMISSION_VENTAS}), 403
         with engine.connect() as connection:
             busca_usuario = text("SELECT * FROM usuario WHERE username = :username")
             respuesta_usuario = connection.execute(busca_usuario, {"username": data['username']}).first()
             if not respuesta_usuario:
-                return jsonify({"error": "Usuario no encontrado"}), 404
+                return jsonify({"error": USER_NOT_FOUND}), 404
             busca_ventas = text("SELECT * FROM ventas WHERE username_id = :username_id")
             respuesta_ventas = connection.execute(busca_ventas, {"username_id": respuesta_usuario.id})
             ventas_lista = [venta.venta for venta in respuesta_ventas]
@@ -367,10 +375,9 @@ def obtener_ventas():
                 "ventas": ventas_lista
             })
     except jwt.ExpiredSignatureError:
-        return jsonify({'message': 'Token has expired!'}), 401
+        return jsonify({'message': TOKEN_EXPIRED}), 401
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -378,15 +385,16 @@ def login():
     username = datos.get('username')
     password = datos.get('password')
     if not username or not password:
-        return jsonify({'message': 'Username and password required'}), 400
+        return jsonify({'message': USERNAME_PASSWORD_REQUIRED}), 400
     user = Session.query(Usuario).filter_by(username=username).first()
     if not user or not check_password_hash(user.password, password):
-        return jsonify({'message': 'Invalid credentials'}), 401
+        return jsonify({'message': INVALID_CREDENTIALS}), 401
     token = jwt.encode({
         'id': user.id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXPIRATION_HOURS)
-    }, SECRET_KEY, algorithm='HS256')
+        'exp': datetime.datetime.now(timezone.utc) + datetime.timedelta(hours=JWT_EXPIRATION_HOURS)
+    }, SECRET_KEY, algorithm=JWT_ALGORITHM)
     return jsonify({'token': token, 'rol': user.rol})
+
 if __name__ == '__main__':
     # Crear admin por defecto si no existe
     crear_admin_por_defecto()
