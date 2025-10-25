@@ -10,6 +10,7 @@ jobs:
   analyze:
     name: Analizar con SonarQube
     runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -33,3 +34,9 @@ jobs:
         SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       with:
         projectBaseDir: .
+        args: >
+          -Dsonar.projectKey=Juan-Miguel-Isidro-Jeronimo_servidor702
+          -Dsonar.projectName=servidor702
+          -Dsonar.sources=.
+          -Dsonar.exclusions=**/node_modules/**,**/*.pyc,**/__pycache__/**
+          -Dsonar.python.version=3
